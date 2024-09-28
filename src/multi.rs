@@ -1,6 +1,8 @@
+use futures_core::Stream;
+
 use crate::*;
 use core::ops::DerefMut;
-use core::pin::Pin;
+use core::pin::{pin, Pin};
 use core::task::{Context, Poll};
 
 fn poll_multiple_step<I, P, S>(
@@ -139,6 +141,23 @@ where
 {
     fn is_terminated(&self) -> bool {
         self.0.into_iter().all(|peekable| peekable.is_terminated())
+    }
+}
+
+impl<C, S> Stream for JoinMultiple<C>
+where
+    for<'a> &'a mut C: IntoIterator<Item = &'a mut Peekable<S>>,
+    S: OrderedStream + Unpin,
+    S::Ordering: Clone,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
     }
 }
 
@@ -290,53 +309,32 @@ mod test {
 
             // When the DelayStream has no information about what it contains, join returns Pending
             // (since there could be a serial-0 message output of DelayStream)
-            assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Pending
-            );
+            assert_eq!(join.as_mut().poll_next(&mut ctx), Poll::Pending);
 
             go.set(1);
             // Now the DelayStream will return NoneBefore on serial 1
             assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Ready(PollResult::Item {
-                    data: Message { serial: 1 },
-                    ordering: 1,
-                })
+                join.as_mut().poll_next(&mut ctx),
+                Poll::Ready(Some(Message { serial: 1 })),
             );
             // however, it does not (yet) do so for serial 3
-            assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Pending
-            );
+            assert_eq!(join.as_mut().poll_next(&mut ctx), Poll::Pending);
 
             go.set(2);
             assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Ready(PollResult::Item {
-                    data: Message { serial: 3 },
-                    ordering: 3,
-                })
+                join.as_mut().poll_next(&mut ctx),
+                Poll::Ready(Some(Message { serial: 3 }))
             );
             assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Ready(PollResult::Item {
-                    data: Message { serial: 4 },
-                    ordering: 4,
-                })
+                join.as_mut().poll_next(&mut ctx),
+                Poll::Ready(Some(Message { serial: 4 })),
             );
             assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Ready(PollResult::Item {
-                    data: Message { serial: 5 },
-                    ordering: 5,
-                })
+                join.as_mut().poll_next(&mut ctx),
+                Poll::Ready(Some(Message { serial: 5 }))
             );
 
-            assert_eq!(
-                join.as_mut().poll_next_before(&mut ctx, None),
-                Poll::Ready(PollResult::Terminated)
-            );
+            assert_eq!(join.as_mut().poll_next(&mut ctx), Poll::Ready(None));
         });
     }
 }

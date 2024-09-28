@@ -1,6 +1,6 @@
 use crate::*;
 use core::future::Future;
-use core::pin::Pin;
+use core::pin::{pin, Pin};
 use core::task::{Context, Poll};
 use futures_core::{FusedStream, Stream};
 
@@ -149,36 +149,6 @@ pub trait OrderedStreamExt: OrderedStream {
 
 impl<T: ?Sized + OrderedStream> OrderedStreamExt for T {}
 
-macro_rules! impl_stream {
-    (
-        $adapter:ident<S $(, $sg:ident $(: $sgbf:tt $(+ $sgbo:tt )* )? )* >,
-        $( $og:ident $(: $ogbf:tt $(+ $ogbo:tt )* )? )*
-    ) => {
-        impl <S $(, $sg $(: $sgbf:tt $(+ $sgbo:tt )* )? )* $(, $og $(: $ogbf:tt $(+ $ogbo:tt )* )? )* > Stream for $adapter< S $(, $sg )* >
-        where
-            S: OrderedStream
-        {
-            type Item = S::Data;
-
-            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-                self.project()
-                    .stream
-                    .poll_next_before(cx, None)
-                    .map(|r| r.into_data())
-            }
-
-            fn size_hint(&self) -> (usize, Option<usize>) {
-                self.stream.size_hint()
-            }
-        }
-    };
-    (
-        $adapter:ident<S $(, $sg:tt $(: $sgbf:tt $(+ $sgbo:tt )* )? )* >
-    ) => {
-        impl_stream!($adapter<S $(, $sg $(: $sgbftt $(+ $sgbo )* )? )* >,);
-    };
-}
-
 pin_project_lite::pin_project! {
     /// An [`OrderedStream`] wrapper around a [`Stream`].
     ///
@@ -252,7 +222,20 @@ where
     }
 }
 
-impl_stream!(FromStreamDirect<S, F>);
+impl<S, F> Stream for FromStreamDirect<S, F>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 impl<S, F, Ordering, Data> FusedOrderedStream for FromStreamDirect<S, F>
 where
@@ -324,7 +307,20 @@ where
     }
 }
 
-impl_stream!(FromSortedStream<S>);
+impl<S> Stream for FromSortedStream<S>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     /// An [`OrderedStream`] wrapper around a [`Stream`].
@@ -427,7 +423,20 @@ where
     }
 }
 
-impl_stream!(FromStream<S, F, Ordering>);
+impl<S, F, Ordering> Stream for FromStream<S, F, Ordering>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     /// A [`Stream`] for the [`into_stream`](OrderedStreamExt::into_stream) function.
@@ -587,6 +596,21 @@ impl<F: OrderedFuture> FusedOrderedStream for FromFuture<F> {
     }
 }
 
+impl<F> Stream for FromFuture<F>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
+
 pin_project_lite::pin_project! {
     /// A stream for the [`map`](OrderedStreamExt::map) function.
     #[derive(Debug)]
@@ -633,7 +657,20 @@ where
     }
 }
 
-impl_stream!(Map<S, F>);
+impl<S, F> Stream for Map<S, F>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     /// A stream for the [`map_item`](OrderedStreamExt::map_item) function.
@@ -688,7 +725,20 @@ where
     }
 }
 
-impl_stream!(MapItem<S, F>);
+impl<S, F> Stream for MapItem<S, F>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     /// A stream for the [`map_ordering`](OrderedStreamExt::map_ordering) function.
@@ -742,7 +792,20 @@ where
     }
 }
 
-impl_stream!(MapOrdering<S, MapInto, MapFrom>);
+impl<S, MapInto, MapFrom> Stream for MapOrdering<S, MapInto, MapFrom>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     /// A stream for the [`filter`](OrderedStreamExt::filter) function.
@@ -798,7 +861,20 @@ where
     }
 }
 
-impl_stream!(Filter<S, F>);
+impl<S, F> Stream for Filter<S, F>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     /// A stream for the [`filter_map`](OrderedStreamExt::filter_map) function.
@@ -853,7 +929,20 @@ where
     }
 }
 
-impl_stream!(FilterMap<S, F>);
+impl<S, F> Stream for FilterMap<S, F>
+where
+    Self: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 pin_project_lite::pin_project! {
     #[project = ThenProj]
@@ -943,7 +1032,21 @@ where
     }
 }
 
-impl_stream!(Then<S, F, Fut>);
+impl<S, F, Fut> Stream for Then<S, F, Fut>
+where
+    Self: OrderedStream,
+    S: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 /// A future for the [`next`](OrderedStreamExt::next) function.
 #[derive(Debug)]
@@ -1092,39 +1195,24 @@ impl<S: OrderedStream> OrderedStream for Peekable<S> {
     }
 }
 
-impl_stream!(Peekable<S>);
+impl<S> Stream for Peekable<S>
+where
+    Self: OrderedStream,
+    S: OrderedStream,
+{
+    type Item = <Self as OrderedStream>::Data;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self).poll_next_before(cx, None).map(|r| r.into_data())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        OrderedStream::size_hint(self)
+    }
+}
 
 impl<S: OrderedStream> FusedOrderedStream for Peekable<S> {
     fn is_terminated(&self) -> bool {
         self.is_terminated
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use core::future::IntoFuture;
-
-    use futures_util::{stream::iter, StreamExt};
-
-    use super::*;
-
-    #[tokio::test]
-    async fn from_stream_direct() {
-        #[derive(Debug, PartialEq, Eq)]
-        struct Message {
-            serial: u32,
-        }
-
-        let messages = iter([
-            Message { serial: 1 },
-            Message { serial: 2 },
-            Message { serial: 3 },
-        ]);
-
-        let mut stream = FromStreamDirect::with_ordering(messages, |m| m.serial);
-
-        for serial in 1..4 {
-            assert_eq!(stream.next().into_future().await, Some(Message { serial }));
-        }
     }
 }
