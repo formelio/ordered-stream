@@ -149,6 +149,36 @@ pub trait OrderedStreamExt: OrderedStream {
 
 impl<T: ?Sized + OrderedStream> OrderedStreamExt for T {}
 
+macro_rules! impl_stream {
+    (
+        $adapter:ident<S $(, $sg:ident $(: $sgbf:tt $(+ $sgbo:tt )* )? )* >,
+        $( $og:ident $(: $ogbf:tt $(+ $ogbo:tt )* )? )*
+    ) => {
+        impl <S $(, $sg $(: $sgbf:tt $(+ $sgbo:tt )* )? )* $(, $og $(: $ogbf:tt $(+ $ogbo:tt )* )? )* > Stream for $adapter< S $(, $sg )* >
+        where
+            S: OrderedStream
+        {
+            type Item = S::Data;
+
+            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+                self.project()
+                    .stream
+                    .poll_next_before(cx, None)
+                    .map(|r| r.into_data())
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.stream.size_hint()
+            }
+        }
+    };
+    (
+        $adapter:ident<S $(, $sg:tt $(: $sgbf:tt $(+ $sgbo:tt )* )? )* >
+    ) => {
+        impl_stream!($adapter<S $(, $sg $(: $sgbftt $(+ $sgbo )* )? )* >,);
+    };
+}
+
 pin_project_lite::pin_project! {
     /// An [`OrderedStream`] wrapper around a [`Stream`].
     ///
@@ -222,6 +252,8 @@ where
     }
 }
 
+impl_stream!(FromStreamDirect<S, F>);
+
 impl<S, F, Ordering, Data> FusedOrderedStream for FromStreamDirect<S, F>
 where
     S: FusedStream,
@@ -291,6 +323,8 @@ where
         self.stream.is_terminated()
     }
 }
+
+impl_stream!(FromSortedStream<S>);
 
 pin_project_lite::pin_project! {
     /// An [`OrderedStream`] wrapper around a [`Stream`].
@@ -392,6 +426,8 @@ where
         self.stream.is_terminated()
     }
 }
+
+impl_stream!(FromStream<S, F, Ordering>);
 
 pin_project_lite::pin_project! {
     /// A [`Stream`] for the [`into_stream`](OrderedStreamExt::into_stream) function.
@@ -597,6 +633,8 @@ where
     }
 }
 
+impl_stream!(Map<S, F>);
+
 pin_project_lite::pin_project! {
     /// A stream for the [`map_item`](OrderedStreamExt::map_item) function.
     #[derive(Debug)]
@@ -650,6 +688,8 @@ where
     }
 }
 
+impl_stream!(MapItem<S, F>);
+
 pin_project_lite::pin_project! {
     /// A stream for the [`map_ordering`](OrderedStreamExt::map_ordering) function.
     #[derive(Debug)]
@@ -701,6 +741,8 @@ where
         self.stream.size_hint()
     }
 }
+
+impl_stream!(MapOrdering<S, MapInto, MapFrom>);
 
 pin_project_lite::pin_project! {
     /// A stream for the [`filter`](OrderedStreamExt::filter) function.
@@ -756,6 +798,8 @@ where
     }
 }
 
+impl_stream!(Filter<S, F>);
+
 pin_project_lite::pin_project! {
     /// A stream for the [`filter_map`](OrderedStreamExt::filter_map) function.
     #[derive(Debug)]
@@ -808,6 +852,8 @@ where
         (0, self.stream.size_hint().1)
     }
 }
+
+impl_stream!(FilterMap<S, F>);
 
 pin_project_lite::pin_project! {
     #[project = ThenProj]
@@ -896,6 +942,8 @@ where
         }
     }
 }
+
+impl_stream!(Then<S, F, Fut>);
 
 /// A future for the [`next`](OrderedStreamExt::next) function.
 #[derive(Debug)]
@@ -1044,8 +1092,39 @@ impl<S: OrderedStream> OrderedStream for Peekable<S> {
     }
 }
 
+impl_stream!(Peekable<S>);
+
 impl<S: OrderedStream> FusedOrderedStream for Peekable<S> {
     fn is_terminated(&self) -> bool {
         self.is_terminated
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use core::future::IntoFuture;
+
+    use futures_util::{stream::iter, StreamExt};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn from_stream_direct() {
+        #[derive(Debug, PartialEq, Eq)]
+        struct Message {
+            serial: u32,
+        }
+
+        let messages = iter([
+            Message { serial: 1 },
+            Message { serial: 2 },
+            Message { serial: 3 },
+        ]);
+
+        let mut stream = FromStreamDirect::with_ordering(messages, |m| m.serial);
+
+        for serial in 1..4 {
+            assert_eq!(stream.next().into_future().await, Some(Message { serial }));
+        }
     }
 }
